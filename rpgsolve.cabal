@@ -16,17 +16,17 @@ library
     , rpglib
 
   exposed-modules:
-      RPGSolve.Config
+      RPGSolve.Attractor
+    , RPGSolve.Config
     , RPGSolve.Solving 
     , RPGSolve.SMT
+    , RPGSolve.SymbolicState
 
   other-modules:
-      RPGSolve.Attractor
-    , RPGSolve.CFG
+      RPGSolve.CFG
     , RPGSolve.LemmaFinding
     , RPGSolve.Logging
     , RPGSolve.Heuristics
-    , RPGSolve.SymbolicState
     , OpenList
   
   hs-source-dirs:

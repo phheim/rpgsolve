@@ -1,15 +1,24 @@
-{-# LANGUAGE LambdaCase, RecordWildCards #-}
+{-# LANGUAGE LambdaCase #-}
 
 -------------------------------------------------------------------------------
-module RPGSolve.Attractor where
+module RPGSolve.Attractor
+  ( Ply(..)
+  , opponent
+  , attractor
+  , attractorCache
+  , attractorEx
+  , cpreS
+  , CacheEntry(..)
+  , Cache
+  ) where
 
 -------------------------------------------------------------------------------
 import Data.Map.Strict (Map, (!), findWithDefault, fromSet)
 import qualified Data.Map.Strict as Map (insert, insertWith, map)
 
-import Control.Monad (filterM, unless)
+import Control.Monad (filterM, foldM, unless)
 import Data.Set (Set, empty, union)
-import qualified Data.Set as Set (fromList, map)
+import qualified Data.Set as Set (fromList, map, toList)
 import OpenList (OpenList, pop, push)
 import qualified OpenList as OL (fromSet)
 
@@ -244,16 +253,87 @@ accelReach ctx limit p g l st = do
   return (res, cfg)
 
 -------------------------------------------------------------------------------
+-- Caching / Hinting
+-------------------------------------------------------------------------------
+-- | 'CacheEntry' represents a piece of attractor computation that is assumed
+-- to be true. Note that the game and player is refers to are implicit and 
+-- their correctness as to be ensured by however provides the cache
+data CacheEntry =
+  CacheEntry
+    { independendCells :: Set Symbol
+    , targetSt :: SymSt
+    , cachedSt :: SymSt
+    , involvedLocs :: Set Loc
+    }
+  deriving (Eq, Ord, Show)
+
+type Cache = [CacheEntry]
+
+-------------------------------------------------------------------------------
+-- | 'applyEntry' checks if a cache entry is applicable to an intermediate
+-- attractor computation step, and if it is applies it.
+applyEntry :: CTX -> Game -> CacheEntry -> SymSt -> IO SymSt
+applyEntry ctx game cache attrSt = do
+  ipred <- independedPred
+    -- TODO: this check should be redundant, but check this before removing it
+  check <-
+    allM
+      (\l -> valid (andf [targ l, ipred] `impl` (attrSt `get` l)))
+      (locations game)
+  if check
+    then let newAttrSt =
+               disjS attrSt (mapSymSt (\f -> andf [ipred, f]) (cachedSt cache))
+          in simplifySymSt ctx newAttrSt
+    else return attrSt
+  where
+    dependends = filter (`notElem` independendCells cache) (outputs game)
+    targ l = targetSt cache `get` l
+    -- This is only one choice for the independent program variables. However
+    -- this seems awfully like we are computing an interpolant. Furthermore,
+    -- it might be possible to use some cheaper syntactic stuff (like setting
+    -- everything non-independent to "true")
+    independLocPred l
+      | targ l == false = return true
+      | otherwise =
+        simplify ctx $ forall dependends (targ l `impl` (attrSt `get` l))
+    -- 
+    independedPred = do
+      preds <- mapM independLocPred (Set.toList (locations game))
+      simplify ctx (andf preds)
+   -- 
+    allM p =
+      foldM
+        (\val elem ->
+           if val
+             then p elem
+             else return False)
+        True
+
+-------------------------------------------------------------------------------
+-- | 'applyCache' transforms an attractor state after an update on a given 
+-- location based on the 'Cache'.
+applyCache :: CTX -> Game -> Cache -> SymSt -> Loc -> IO SymSt
+applyCache ctx game cache attrSt currentLoc = go attrSt cache
+  where
+    go symst =
+      \case
+        [] -> return symst
+        ce:cer
+          | currentLoc `notElem` involvedLocs ce -> go symst cer
+          | otherwise -> do
+            symst <- applyEntry ctx game ce symst
+            go symst cer
+
+-------------------------------------------------------------------------------
 -- Attractor Computation
 -------------------------------------------------------------------------------
--- Assume for the extraction that the goal is already mapped
---
-attractor :: CTX -> Ply -> Game -> SymSt -> IO SymSt
-attractor ctx p g symst =
-  fst <$> attractorEx (ctx {generateProgram = False}) p g symst
-
-attractorEx :: CTX -> Ply -> Game -> SymSt -> IO (SymSt, CFG)
-attractorEx ctx p g symst = do
+-- | 'attractorFull' does the complete attractor computation and is later used
+-- for the different type of attractor computations (with/without extraction,
+--  cache, ...). Note the for correctness it has to hold
+--      null cache || not (generateProgram ctx)
+--  Otherwise the generated program does not make any sense.
+attractorFull :: CTX -> Ply -> Game -> Cache -> SymSt -> IO (SymSt, CFG)
+attractorFull ctx p g cache symst = do
   nf <- Set.fromList . map fst <$> filterM (sat . snd) (listSymSt symst)
   lgFirst ctx "Attractor:" (Set.map (locationNames g !) nf)
   lgS ctx "Initial:" g symst
@@ -273,11 +353,13 @@ attractorEx ctx p g symst = do
           lg ctx "Location:" (locationNames g ! l)
           let fo = st `get` l
           lg ctx "Old:" (smtLib2 fo)
+          -- Enforcable predecessor step
           fn <- simplify ctx (orf [cpre p g st l, fo])
           lg ctx "New:" (smtLib2 fn)
           let st' = set st l fn
           let vc' = visit l vc
           let on' = preds g l `push` no
+          -- Check if this changed something in this location
           unchanged <- valid (fn `impl` fo)
           lg ctx "Subsumption:" unchanged
           if unchanged
@@ -285,7 +367,17 @@ attractorEx ctx p g symst = do
             else do
               cfg <- extr (addUpd st g l cfg)
               cfg <- simpCFG cfg
-              if accelNow l fo vc' && canAccel g
+              -- Caching 
+              (st', cached) <-
+                if null cache
+                  then return (st', False)
+                  else do
+                    st' <- applyCache ctx g cache st' l
+                    cached <- sat (andf [st' `get` l, neg fn])
+                    return (st', cached)
+              -- Check if we accelerate
+              if accelNow l fo vc' && canAccel g && not cached
+                  -- Acceleration
                 then do
                   lgMsg ctx "Attempt reachability acceleration"
                   (acc, cfgSub) <- accelReach ctx (visits l vc') p g l st'
@@ -294,6 +386,7 @@ attractorEx ctx p g symst = do
                   succ <- not <$> valid (res `impl` fn)
                   lg ctx "Accelerated:" succ
                   if succ
+                      -- Acceleration succeed
                     then do
                       cfg <- extr (integrate cfgSub cfg)
                       cfg <- simpCFG cfg
@@ -321,4 +414,25 @@ canAccel g =
   any
     (\v -> isNumber (ioType g ! v) && (v `notElem` boundedCells g))
     (outputs g)
+
+-------------------------------------------------------------------------------
+-- | 'attractor' compute the attractor for a given player, game, and symbolic
+-- state
+attractor :: CTX -> Ply -> Game -> SymSt -> IO SymSt
+attractor ctx p g symst =
+  fst <$> attractorFull (ctx {generateProgram = False}) p g [] symst
+
+-------------------------------------------------------------------------------
+-- | 'attractorCache' compute the attractor for a given player, game, 
+-- and symbolic state provided with a cache that it assumes to be true for
+-- those game and player
+attractorCache :: CTX -> Ply -> Game -> Cache -> SymSt -> IO SymSt
+attractorCache ctx p g cache symst =
+  fst <$> attractorFull (ctx {generateProgram = False}) p g cache symst
+
+-------------------------------------------------------------------------------
+-- | 'attractorEx' compute the attractor for a given player, game, and symbolic
+-- state and does program extraction if indicated in the 'CTX'
+attractorEx :: CTX -> Ply -> Game -> SymSt -> IO (SymSt, CFG)
+attractorEx ctx p g = attractorFull ctx p g []
 -------------------------------------------------------------------------------

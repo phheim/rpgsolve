@@ -17,6 +17,7 @@ import RPGSolve.SMT (simplify, smtLib2, valid)
 -------------------------------------------------------------------------------
 newtype SymSt =
   SymSt (Map Loc Term) -- assert that all location are mapped
+ deriving (Eq, Ord, Show)
 
 invSymSt :: Game -> SymSt
 invSymSt = SymSt . invariant
@@ -33,6 +34,10 @@ set (SymSt s) l f = SymSt (Map.insert l f s)
 
 disj :: SymSt -> Loc -> Term -> SymSt
 disj s l f = set s l (orf [f, s `get` l])
+
+disjS :: SymSt -> SymSt -> SymSt
+disjS (SymSt a) b =
+  SymSt (mapWithKey (\l f -> orf [f, b `get` l]) a)
 
 differenceS :: SymSt -> SymSt -> SymSt
 differenceS (SymSt a) b =
