@@ -21,9 +21,12 @@ library
     , RPGSolve.SMT
 
   other-modules:
-      RPGSolve.LemmaFinding
+      RPGSolve.Attractor
+    , RPGSolve.CFG
+    , RPGSolve.LemmaFinding
     , RPGSolve.Logging
     , RPGSolve.Heuristics
+    , RPGSolve.SymbolicState
     , OpenList
   
   hs-source-dirs:
