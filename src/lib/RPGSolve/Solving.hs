@@ -6,11 +6,9 @@
 -- games. 
 --
 -------------------------------------------------------------------------------
-{-# LANGUAGE LambdaCase, RecordWildCards #-}
-
--------------------------------------------------------------------------------
 module RPGSolve.Solving
   ( solve
+  , solveCache
   ) where
 
 -------------------------------------------------------------------------------
@@ -36,16 +34,28 @@ solve :: CTX -> Game -> WinningCondition -> IO ()
 solve ctx g win = do
   (res, cfg) <-
     case win of
-      Reachability ls -> solveReach ctx g ls
-      Safety ls -> solveSafety ctx g ls
-      Buechi ls -> solveBuechi ctx g ls
-      CoBuechi ls -> solveCoBuechi ctx g ls
-      Parity rank -> solveParity ctx g rank
+      Reachability ls -> solveReach ctx [] g ls
+      Safety ls -> solveSafety ctx [] g ls
+      Buechi ls -> solveBuechi ctx [] g ls
+      CoBuechi ls -> solveCoBuechi ctx [] g ls
+      Parity rank -> solveParity ctx [] g rank
   if res
     then do
       putStrLn "Realizable"
       when (generateProgram ctx) (process ctx cfg >>= putStrLn . printCFG g)
     else putStrLn "Unrealizable"
+
+solveCache :: CTX -> Cache -> Game -> WinningCondition -> IO Bool
+solveCache ctx cache g win = do
+  ctx <- pure $ ctx {generateProgram = False}
+  (res, _) <-
+    case win of
+      Reachability ls -> solveReach ctx cache g ls
+      Safety ls -> solveSafety ctx cache g ls
+      Buechi ls -> solveBuechi ctx cache g ls
+      CoBuechi ls -> solveCoBuechi ctx cache g ls
+      Parity rank -> solveParity ctx cache g rank
+  return res
 
 selectInv :: Game -> Set Loc -> SymSt
 selectInv g locs =
@@ -56,10 +66,10 @@ selectInv g locs =
          then g `inv` l
          else false)
 
-solveReach :: CTX -> Game -> Set Loc -> IO (Bool, CFG)
-solveReach ctx g reach = do
+solveReach :: CTX -> Cache -> Game -> Set Loc -> IO (Bool, CFG)
+solveReach ctx cache g reach = do
   lgFirst ctx "Game type:" "Reachability"
-  (a, cfg) <- attractorEx ctx Sys g (selectInv g reach)
+  (a, cfg) <- attractorEx ctx cache Sys g (selectInv g reach)
   res <- valid (a `get` initial g)
   lgLast ctx "Game result:" res
   if res && generateProgram ctx
@@ -72,11 +82,11 @@ solveReach ctx g reach = do
 foldLocs :: Set Loc -> (Loc -> CFG -> CFG) -> CFG -> CFG
 foldLocs locs f cfg = foldl (flip f) cfg locs
 
-solveSafety :: CTX -> Game -> Set Loc -> IO (Bool, CFG)
-solveSafety ctx g safes = do
+solveSafety :: CTX -> Cache -> Game -> Set Loc -> IO (Bool, CFG)
+solveSafety ctx cache g safes = do
   lgFirst ctx "Game type:" "Safety"
   let envGoal = selectInv g (locations g `difference` safes)
-  a <- attractor ctx Env g envGoal
+  a <- attractorCache ctx Env g cache envGoal
   lgS ctx "Unsafe states:" g a
   lg ctx "Initial formula:" (smtLib2 (a `get` initial g))
   res <- not <$> sat (a `get` initial g)
@@ -93,17 +103,17 @@ solveSafety ctx g safes = do
       return (res, cfg)
     else return (res, emptyCFG)
 
-iterBuechi :: CTX -> Ply -> Game -> Set Loc -> IO (SymSt, SymSt)
-iterBuechi ctx p g accept = iter (selectInv g accept) (0 :: Word)
+iterBuechi :: CTX -> Cache -> Ply -> Game -> Set Loc -> IO (SymSt, SymSt)
+iterBuechi ctx cache p g accept = iter (selectInv g accept) (0 :: Word)
   where
     iter fset i = do
       lg ctx "Iteration:" i
       lgS ctx "F_i" g fset
-      bset <- attractor ctx p g fset
+      bset <- attractorCache ctx p g cache fset
       lgS ctx "B_i" g bset
       cset <- cpreS ctx p g bset
       lgS ctx "C_i" g cset
-      wset <- attractor ctx (opponent p) g (mapSymSt neg cset)
+      wset <- attractorCache ctx (opponent p) g cache (mapSymSt neg cset)
       lgS ctx "W_i+1" g wset
       fset' <- simplifySymSt ctx (fset `differenceS` wset)
       lgS ctx "F_i+1" g fset'
@@ -116,28 +126,28 @@ iterBuechi ctx p g accept = iter (selectInv g accept) (0 :: Word)
           lgS ctx "Recursion:" g fset'
           iter fset' (i + 1)
 
-solveBuechi :: CTX -> Game -> Set Loc -> IO (Bool, CFG)
-solveBuechi ctx g accepts = do
+solveBuechi :: CTX -> Cache -> Game -> Set Loc -> IO (Bool, CFG)
+solveBuechi ctx cache g accepts = do
   lgFirst ctx "Game type:" "Buechi"
   lg ctx "Acceptings:" (Set.map (locationNames g !) accepts)
-  (wenv, fset) <- iterBuechi ctx Sys g accepts
+  (wenv, fset) <- iterBuechi ctx cache Sys g accepts
   lg ctx "Environment winning:" (smtLib2 (wenv `get` initial g))
   res <- not <$> sat (wenv `get` initial g)
   lgLast ctx "Game result:" res
   if res && generateProgram ctx
     then do
-      (attr, cfg) <- attractorEx ctx Sys g fset
+      (attr, cfg) <- attractorEx ctx cache Sys g fset
       cfg <- pure $ redirectGoal g attr cfg
       cfg <- pure $ setInitialCFG cfg (initial g)
       return (True, cfg)
     else return (res, emptyCFG)
 
-solveCoBuechi :: CTX -> Game -> Set Loc -> IO (Bool, CFG)
-solveCoBuechi ctx g stays = do
+solveCoBuechi :: CTX -> Cache -> Game -> Set Loc -> IO (Bool, CFG)
+solveCoBuechi ctx cache g stays = do
   lgFirst ctx "Game type:" "coBuechi"
   let rejects = locations g `difference` stays
   lg ctx "Rejects:" (Set.map (locationNames g !) rejects)
-  (wsys, _) <- iterBuechi ctx Env g rejects
+  (wsys, _) <- iterBuechi ctx cache Env g rejects
   lg ctx "System winning:" (smtLib2 (wsys `get` initial g))
   res <- valid (wsys `get` initial g)
   lgLast ctx "Game result:" res
@@ -145,6 +155,6 @@ solveCoBuechi ctx g stays = do
     then error "TODO"
     else return (res, emptyCFG)
 
-solveParity :: CTX -> Game -> Map Loc Word -> IO (Bool, CFG)
+solveParity :: CTX -> Cache -> Game -> Map Loc Word -> IO (Bool, CFG)
 solveParity = error "Old implementation was buggy, under construction."
 -------------------------------------------------------------------------------

@@ -1,5 +1,3 @@
-{-# LANGUAGE LambdaCase, RecordWildCards #-}
-
 module RPGSolve.SymbolicState where
 
 -------------------------------------------------------------------------------
@@ -17,7 +15,7 @@ import RPGSolve.SMT (simplify, smtLib2, valid)
 -------------------------------------------------------------------------------
 newtype SymSt =
   SymSt (Map Loc Term) -- assert that all location are mapped
- deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show)
 
 invSymSt :: Game -> SymSt
 invSymSt = SymSt . invariant
@@ -36,8 +34,7 @@ disj :: SymSt -> Loc -> Term -> SymSt
 disj s l f = set s l (orf [f, s `get` l])
 
 disjS :: SymSt -> SymSt -> SymSt
-disjS (SymSt a) b =
-  SymSt (mapWithKey (\l f -> orf [f, b `get` l]) a)
+disjS (SymSt a) b = SymSt (mapWithKey (\l f -> orf [f, b `get` l]) a)
 
 differenceS :: SymSt -> SymSt -> SymSt
 differenceS (SymSt a) b =
@@ -45,7 +42,7 @@ differenceS (SymSt a) b =
 
 impliesS :: SymSt -> SymSt -> IO Bool
 impliesS (SymSt a) b =
-  valid (andf ((\l -> ((SymSt a) `get` l) `impl` (b `get` l)) <$> keys a))
+  valid (andf ((\l -> (SymSt a `get` l) `impl` (b `get` l)) <$> keys a))
 
 lgS :: CTX -> String -> Game -> SymSt -> IO ()
 lgS ctx item g (SymSt s) =

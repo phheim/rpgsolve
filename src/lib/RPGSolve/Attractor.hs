@@ -256,11 +256,12 @@ accelReach ctx limit p g l st = do
 -- Caching / Hinting
 -------------------------------------------------------------------------------
 -- | 'CacheEntry' represents a piece of attractor computation that is assumed
--- to be true. Note that the game and player is refers to are implicit and 
--- their correctness as to be ensured by however provides the cache
+-- to be true. Note that the game it refers to is  implicit and the correctness 
+-- gas to be ensured by whoever provides the cache
 data CacheEntry =
   CacheEntry
-    { independendCells :: Set Symbol
+    { forPlayer :: Ply
+    , independendCells :: Set Symbol
     , targetSt :: SymSt
     , cachedSt :: SymSt
     , involvedLocs :: Set Loc
@@ -272,19 +273,23 @@ type Cache = [CacheEntry]
 -------------------------------------------------------------------------------
 -- | 'applyEntry' checks if a cache entry is applicable to an intermediate
 -- attractor computation step, and if it is applies it.
-applyEntry :: CTX -> Game -> CacheEntry -> SymSt -> IO SymSt
-applyEntry ctx game cache attrSt = do
-  ipred <- independedPred
+applyEntry :: CTX -> Game -> Ply -> CacheEntry -> SymSt -> IO SymSt
+applyEntry ctx game ply cache attrSt
+  | ply /= forPlayer cache = return attrSt
+  | otherwise = do
+    ipred <- independedPred
     -- TODO: this check should be redundant, but check this before removing it
-  check <-
-    allM
-      (\l -> valid (andf [targ l, ipred] `impl` (attrSt `get` l)))
-      (locations game)
-  if check
-    then let newAttrSt =
-               disjS attrSt (mapSymSt (\f -> andf [ipred, f]) (cachedSt cache))
-          in simplifySymSt ctx newAttrSt
-    else return attrSt
+    check <-
+      allM
+        (\l -> valid (andf [targ l, ipred] `impl` (attrSt `get` l)))
+        (locations game)
+    if check
+      then let newAttrSt =
+                 disjS
+                   attrSt
+                   (mapSymSt (\f -> andf [ipred, f]) (cachedSt cache))
+            in simplifySymSt ctx newAttrSt
+      else return attrSt
   where
     dependends = filter (`notElem` independendCells cache) (outputs game)
     targ l = targetSt cache `get` l
@@ -312,8 +317,8 @@ applyEntry ctx game cache attrSt = do
 -------------------------------------------------------------------------------
 -- | 'applyCache' transforms an attractor state after an update on a given 
 -- location based on the 'Cache'.
-applyCache :: CTX -> Game -> Cache -> SymSt -> Loc -> IO SymSt
-applyCache ctx game cache attrSt currentLoc = go attrSt cache
+applyCache :: CTX -> Game -> Ply -> Cache -> SymSt -> Loc -> IO SymSt
+applyCache ctx game player cache attrSt currentLoc = go attrSt cache
   where
     go symst =
       \case
@@ -321,7 +326,7 @@ applyCache ctx game cache attrSt currentLoc = go attrSt cache
         ce:cer
           | currentLoc `notElem` involvedLocs ce -> go symst cer
           | otherwise -> do
-            symst <- applyEntry ctx game ce symst
+            symst <- applyEntry ctx game player ce symst
             go symst cer
 
 -------------------------------------------------------------------------------
@@ -369,12 +374,12 @@ attractorFull ctx p g cache symst = do
               cfg <- simpCFG cfg
               -- Caching 
               (st', cached) <-
-                if null cache
-                  then return (st', False)
-                  else do
-                    st' <- applyCache ctx g cache st' l
+                if any ((== p) . forPlayer) cache
+                  then do
+                    st' <- applyCache ctx g p cache st' l
                     cached <- sat (andf [st' `get` l, neg fn])
                     return (st', cached)
+                  else return (st', False)
               -- Check if we accelerate
               if accelNow l fo vc' && canAccel g && not cached
                   -- Acceleration
@@ -425,14 +430,17 @@ attractor ctx p g symst =
 -------------------------------------------------------------------------------
 -- | 'attractorCache' compute the attractor for a given player, game, 
 -- and symbolic state provided with a cache that it assumes to be true for
--- those game and player
+-- this game 
 attractorCache :: CTX -> Ply -> Game -> Cache -> SymSt -> IO SymSt
 attractorCache ctx p g cache symst =
   fst <$> attractorFull (ctx {generateProgram = False}) p g cache symst
 
 -------------------------------------------------------------------------------
 -- | 'attractorEx' compute the attractor for a given player, game, and symbolic
--- state and does program extraction if indicated in the 'CTX'
-attractorEx :: CTX -> Ply -> Game -> SymSt -> IO (SymSt, CFG)
-attractorEx ctx p g = attractorFull ctx p g []
+-- state and does program extraction if indicated in the 'CTX'. If it does 
+-- program extraction the cache is not used.
+attractorEx :: CTX -> Cache -> Ply -> Game -> SymSt -> IO (SymSt, CFG)
+attractorEx ctx cache p g
+  | generateProgram ctx = attractorFull ctx p g []
+  | otherwise = attractorFull ctx p g cache
 -------------------------------------------------------------------------------
