@@ -380,6 +380,7 @@ attractorFull ctx p g cache symst = do
                     cached <- sat (andf [st' `get` l, neg fn])
                     return (st', cached)
                   else return (st', False)
+              lg ctx "Cached:" cached
               -- Check if we accelerate
               if accelNow l fo vc' && canAccel g && not cached
                   -- Acceleration
