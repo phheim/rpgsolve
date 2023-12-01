@@ -229,7 +229,7 @@ iterAttr depth p g st shadow =
           | visits l vc == visitingThreshold && depth > 0 ->
             let (consA, fA, uSymA, cfgSub) = accReach (depth - 1) p g l st uSym
                 cfg' = integrate cfgSub cfg
-             in reC l ol' consA (set st l (orf [fA, st `get` l])) uSymA cfg'
+             in reC l ol' (cons ++ consA) (set st l (orf [fA, st `get` l])) uSymA cfg'
           | otherwise -> attr ol' vc cons st uSym cfg
       where
         reC l ol' = attr (preds g l `push` ol') (visit l vc)

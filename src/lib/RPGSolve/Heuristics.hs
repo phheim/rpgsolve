@@ -18,8 +18,8 @@ limit2skolemNum k = k `mod` 8 == 0
 
 limit2depth :: Word -> Word
 limit2depth k
-  | k <= accelerationDist = 0 -- Try once without nesting
-  | otherwise = (k `div` (10 * accelerationDist)) + 1
+  | k <= 10 * accelerationDist = 0 -- Try once without nesting
+  | otherwise = (k `div` (100 * accelerationDist)) + 1
 
 limit2to :: Word -> Word
 limit2to k = k * k
@@ -31,4 +31,4 @@ limit2toextract k = 4 * limit2to k
 templateConfig :: Word -> (Integer, [Integer])
 templateConfig limit =
   let dis = accelerationDist * accelerationDist
-   in (2 + toInteger (limit `div` dis), genericReplicate (limit `div` dis) 2)
+   in (3 + toInteger (limit `div` dis), genericReplicate (limit `div` dis) 2)
