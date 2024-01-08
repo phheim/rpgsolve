@@ -229,7 +229,13 @@ iterAttr depth p g st shadow =
           | visits l vc == visitingThreshold && depth > 0 ->
             let (consA, fA, uSymA, cfgSub) = accReach (depth - 1) p g l st uSym
                 cfg' = integrate cfgSub cfg
-             in reC l ol' (cons ++ consA) (set st l (orf [fA, st `get` l])) uSymA cfg'
+             in reC
+                  l
+                  ol'
+                  (cons ++ consA)
+                  (set st l (orf [fA, st `get` l]))
+                  uSymA
+                  cfg'
           | otherwise -> attr ol' vc cons st uSym cfg
       where
         reC l ol' = attr (preds g l `push` ol') (visit l vc)
@@ -363,7 +369,6 @@ attractorFull ctx p g cache symst = do
           lg ctx "New:" (smtLib2 fn)
           let st' = set st l fn
           let vc' = visit l vc
-          let on' = preds g l `push` no
           -- Check if this changed something in this location
           unchanged <- valid (fn `impl` fo)
           lg ctx "Subsumption:" unchanged
@@ -376,13 +381,18 @@ attractorFull ctx p g cache symst = do
               (st', cached) <-
                 if any ((== p) . forPlayer) cache
                   then do
-                    st' <- applyCache ctx g p cache st' l
-                    cached <- sat (andf [st' `get` l, neg fn])
-                    return (st', cached)
-                  else return (st', False)
-              lg ctx "Cached:" cached
+                    st'' <- applyCache ctx g p cache st' l
+                    cached <-
+                      filterM
+                        (\l -> sat (andf [st'' `get` l, neg (st' `get` l)]))
+                        (locsSymSt st)
+                    return (st'', cached)
+                  else return (st', [])
+              lg ctx "Cached:" (Set.fromList (map (locationNames g !) cached))
+              -- Compute potential new locations 
+              let on' = (Set.fromList cached) `push` (preds g l `push` no)
               -- Check if we accelerate
-              if accelNow l fo vc' && canAccel g && not cached
+              if accelNow l fo vc' && canAccel g && null cached
                   -- Acceleration
                 then do
                   lgMsg ctx "Attempt reachability acceleration"
