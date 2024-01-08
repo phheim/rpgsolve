@@ -17,7 +17,7 @@ import Data.Map.Strict (Map, (!), findWithDefault, fromSet)
 import qualified Data.Map.Strict as Map (insert, insertWith, map)
 
 import Control.Monad (filterM, foldM, unless)
-import Data.Set (Set, empty, union)
+import Data.Set (Set, empty, union, unions)
 import qualified Data.Set as Set (fromList, map, toList)
 import OpenList (OpenList, pop, push)
 import qualified OpenList as OL (fromSet)
@@ -390,7 +390,7 @@ attractorFull ctx p g cache symst = do
                   else return (st', [])
               lg ctx "Cached:" (Set.fromList (map (locationNames g !) cached))
               -- Compute potential new locations 
-              let on' = (Set.fromList cached) `push` (preds g l `push` no)
+              let on' = unions (preds g <$> cached) `push` (preds g l `push` no)
               -- Check if we accelerate
               if accelNow l fo vc' && canAccel g && null cached
                   -- Acceleration
