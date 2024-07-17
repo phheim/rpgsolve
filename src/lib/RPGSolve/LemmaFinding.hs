@@ -269,7 +269,7 @@ resolveSk ctx limit tyc cons f ls = do
   let sk = skolemize limit tyc meta
   thetaSk <-
     maybe (sk theta) id <$> trySimplifyUF ctx (limit2to limit) (sk theta)
-  let query = forall (cells tyc) (exists (Set.toList meta) theta `impl` thetaSk)
+  let query = forAll (cells tyc) (exists (Set.toList meta) theta `impl` thetaSk)
   lgFirst ctx "Try sat:" (smtLib2 query)
   resSAT <- satModelTO ctx (Just (limit2toextract limit)) query
   case resSAT of
@@ -306,7 +306,7 @@ resolveBoth ctx limit tyc cons f ls =
              thetaSk <-
                maybe (sk theta) id <$>
                trySimplifyUF ctx (limit2to limit) (sk theta)
-             let querySk = forall (cells tyc) (res `impl` thetaSk)
+             let querySk = forAll (cells tyc) (res `impl` thetaSk)
              resSAT <- satModelTO ctx (Just (limit2toextract limit)) querySk
              case resSAT of
                Nothing -> do

@@ -5,7 +5,7 @@ import Data.Map.Strict (Map, (!), (!?), fromSet, keys, mapKeys, mapWithKey)
 import qualified Data.Map.Strict as Map (insert, toList)
 
 import FOL
-import RPGS.Game (Game(invariant, locationNames), Loc, locations)
+import RPG (Game(invariant, locationNames), Loc, locations)
 import RPGSolve.Config (CTX)
 import RPGSolve.Logging (lg)
 import RPGSolve.SMT (simplify, smtLib2, valid)
@@ -53,6 +53,12 @@ locsSymSt (SymSt s) = keys s
 
 listSymSt :: SymSt -> [(Loc, Term)]
 listSymSt (SymSt s) = Map.toList s
+
+isEmptySt :: SymSt -> Bool
+isEmptySt = all ((== false) . snd) . listSymSt
+
+emptySt :: Game -> SymSt
+emptySt g = symSt g (const false)
 
 simplifySymSt :: CTX -> SymSt -> IO SymSt
 simplifySymSt ctx (SymSt s) = SymSt <$> mapM (simplify ctx) s

@@ -2,9 +2,9 @@
 
 module Main where
 
-import RPGS.Parser (parseGame)
+import RPG (parseGame)
+import RPGSolve.Config
 import RPGSolve.Solving (solve)
-import RPGSolve.Config 
 
 import System.Environment (getArgs)
 

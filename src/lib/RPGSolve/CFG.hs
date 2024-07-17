@@ -16,7 +16,7 @@ import qualified Data.Map.Strict as Map
 import Control.Monad (foldM)
 
 import FOL
-import RPGS.Game
+import RPG
 import RPGSolve.Config
 import RPGSolve.LemmaFinding
 import RPGSolve.SMT (simplify, smtLib2)

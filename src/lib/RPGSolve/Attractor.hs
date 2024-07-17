@@ -19,11 +19,11 @@ import qualified Data.Map.Strict as Map (insert, insertWith, map)
 import Control.Monad (filterM, foldM, unless)
 import Data.Set (Set, empty, union, unions)
 import qualified Data.Set as Set (fromList, map, toList)
-import OpenList (OpenList, pop, push)
-import qualified OpenList as OL (fromSet)
+import Utils.OpenList (OpenList, pop, push)
+import qualified Utils.OpenList as OL (fromSet)
 
 import FOL
-import RPGS.Game
+import RPG
 import RPGSolve.CFG
 import RPGSolve.Config
 import RPGSolve.Heuristics
@@ -56,7 +56,8 @@ cpreS :: CTX -> Ply -> Game -> SymSt -> IO SymSt
 cpreS ctx p g st = simplifySymSt ctx (symSt g (cpre p g st))
 
 cpreSys :: Game -> SymSt -> Loc -> Term
-cpreSys g st l = andf [g `inv` l, forall (inputs g) (cpreST (tran g l))]
+cpreSys g st l =
+  andf [g `inv` l, forAll (inputs g) (validInput g l `impl` cpreST (tran g l))]
   where
     cpreST =
       \case
@@ -65,13 +66,22 @@ cpreSys g st l = andf [g `inv` l, forall (inputs g) (cpreST (tran g l))]
           orf [mapTermM u (andf [st `get` l, g `inv` l]) | (u, l) <- upds]
 
 cpreEnv :: Game -> SymSt -> Loc -> Term
-cpreEnv g st l = andf [g `inv` l, exists (inputs g) (cpreET (tran g l))]
+cpreEnv g st l =
+  andf [g `inv` l, exists (inputs g) (andf [validInput g l, cpreET (tran g l)])]
   where
     cpreET =
       \case
         TIf p tt te -> ite p (cpreET tt) (cpreET te)
         TSys upds ->
           andf [mapTermM u ((g `inv` l) `impl` (st `get` l)) | (u, l) <- upds]
+
+validInput :: Game -> Loc -> Term
+validInput g l = go (tran g l)
+  where
+    go =
+      \case
+        TIf p tt te -> ite p (go tt) (go te)
+        TSys upds -> orf [mapTermM u (g `inv` l) | (u, l) <- upds]
 
 -------------------------------------------------------------------------------
 -- Visit Counting
@@ -145,7 +155,7 @@ lemmaSymbols g (UsedSyms allS lems) =
     uintPred g f = Func (UnintF f) [Var c (ioType g ! c) | c <- outputs g]
 
 forallC :: Game -> Term -> Term
-forallC g = forall (outputs g)
+forallC g = forAll (outputs g)
 
 existsC :: Game -> Term -> Term
 existsC g = exists (outputs g)
@@ -306,7 +316,7 @@ applyEntry ctx game ply cache attrSt
     independLocPred l
       | targ l == false = return true
       | otherwise =
-        simplify ctx $ forall dependends (targ l `impl` (attrSt `get` l))
+        simplify ctx $ forAll dependends (targ l `impl` (attrSt `get` l))
     -- 
     independedPred = do
       preds <- mapM independLocPred (Set.toList (locations game))
@@ -392,7 +402,7 @@ attractorFull ctx p g cache symst = do
               -- Compute potential new locations 
               let on' = unions (preds g <$> cached) `push` (preds g l `push` no)
               -- Check if we accelerate
-              if accelNow l fo vc' && canAccel g && null cached
+              if accelNow l fo vc' && canAccel g && null cached --DEBUG!
                   -- Acceleration
                 then do
                   lgMsg ctx "Attempt reachability acceleration"

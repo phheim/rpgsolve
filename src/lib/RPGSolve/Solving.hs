@@ -13,13 +13,14 @@ module RPGSolve.Solving
 
 -------------------------------------------------------------------------------
 import Data.Map.Strict (Map, (!))
+import qualified Data.Map.Strict as Map (toList)
 
 import Control.Monad (when)
 import Data.Set (Set, difference)
 import qualified Data.Set as Set (map, toList)
 
 import FOL
-import RPGS.Game
+import RPG
 import RPGSolve.Attractor
 import RPGSolve.CFG
 import RPGSolve.Config
@@ -123,8 +124,17 @@ iterBuechi ctx cache p g accept = iter (selectInv g accept) (0 :: Word)
           lgS ctx "Fixed point:" g fset'
           return (wset, fset)
         else do
-          lgS ctx "Recursion:" g fset'
-          iter fset' (i + 1)
+          earlyStop <-
+            case p of
+              Sys -> sat (wset `get` initial g)
+              Env -> valid (wset `get` initial g)
+          if False && earlyStop
+            then do
+              lgMsg ctx "Early stop"
+              return (wset, fset)
+            else do
+              lgS ctx "Recursion:" g fset'
+              iter fset' (i + 1)
 
 solveBuechi :: CTX -> Cache -> Game -> Set Loc -> IO (Bool, CFG)
 solveBuechi ctx cache g accepts = do
@@ -156,5 +166,72 @@ solveCoBuechi ctx cache g stays = do
     else return (res, emptyCFG)
 
 solveParity :: CTX -> Cache -> Game -> Map Loc Word -> IO (Bool, CFG)
-solveParity = error "Old implementation was buggy, under construction."
+solveParity ctx cache g colors
+    -- TODO: add logging
+ = do
+  (_, wsys) <- zielonka g
+  res <- valid (wsys `get` initial g)
+  if res && generateProgram ctx
+    then error "TODO"
+    else return (res, emptyCFG)
+  where
+    colorList = Map.toList colors
+    --
+    maxColor :: Game -> Word
+    maxColor g = maximum [col | (l, col) <- colorList, inv g l /= false]
+    --
+    colorPlayer :: Word -> Ply
+    colorPlayer col
+      | col `mod` 2 == 0 = Env
+      | otherwise = Sys
+    --
+    playerSet Env = fst
+    playerSet Sys = snd
+    mkPlSet Env (wply, wopp) = (wply, wopp)
+    mkPlSet Sys (wply, wopp) = (wopp, wply)
+    removeFromGame symst g = do
+      newInv <- simplifySymSt ctx (invSymSt g `differenceS` symst)
+      pure $ foldl (\g l -> setInv g l (newInv `get` l)) g (locations g)
+    --
+    zielonka :: Game -> IO (SymSt, SymSt)
+    zielonka g
+     -- TODO: Check that this is really needed
+      | isEmptySt (invSymSt g) = pure (emptySt g, emptySt g)
+      | otherwise = do
+        let color = maxColor g
+        let player = colorPlayer color
+        let opp = opponent player
+        let targ =
+              symSt
+                g
+                (\l ->
+                   if colors ! l == color
+                     then inv g l
+                     else false)
+        let full = invSymSt g
+        lgS ctx "Parity:" g full
+        lg ctx "Parity color" color
+        lgS ctx "Parity target:" g targ
+        aset <- attractorCache ctx player g cache targ
+        eqiv <- impliesS full aset
+        if eqiv
+          then do
+            lgMsg ctx "Parity return 0"
+            pure $ mkPlSet player (full, emptySt g)
+          else do
+            g' <- removeFromGame aset g
+            lgMsg ctx "Parity Recurse 1"
+            winOp' <- playerSet opp <$> zielonka g'
+            winOp' <- simplifySymSt ctx winOp'
+            if isEmptySt winOp'
+              then do
+                lgMsg ctx "Parity return 1"
+                pure $ mkPlSet player (full, emptySt g)
+              else do
+                remove <- attractorCache ctx opp g cache winOp'
+                g'' <- removeFromGame remove g
+                lgMsg ctx "Parity Recurse 2"
+                winPl'' <- playerSet player <$> zielonka g''
+                lgMsg ctx "Parity return 2"
+                pure $ mkPlSet player (winPl'', full `differenceS` winPl'')
 -------------------------------------------------------------------------------
