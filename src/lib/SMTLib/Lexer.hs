@@ -18,6 +18,7 @@ tokenize =
     ';':tr -> slComment tr
     ' ':tr -> tokenize tr
     '\n':tr -> tokenize tr
+    '\r':tr -> tokenize tr
     '\t':tr -> tokenize tr
     '(':tr -> TLPar : tokenize tr
     ')':tr -> TRPar : tokenize tr
@@ -28,7 +29,7 @@ tokenize =
       \case
         [] -> [TId (reverse ident)]
         c:s
-          | c `elem` [' ', '\n', '\t', ')', '('] ->
+          | c `elem` [' ', '\n', '\t', '\r', ')', '('] ->
             TId (reverse ident) : tokenize (c : s)
           | otherwise -> tokenizeID (c : ident) s
     --

@@ -1,7 +1,2 @@
-resolver: lts-13.17
+resolver: lts-22.32
 flags: {}
-extra-deps:
-  - git: https://github.com/phheim/folhs.git 
-    commit: 2f8c10e849163807c612d682a8ea68df147617e9
-  - git: https://github.com/phheim/rpglib.git
-    commit: 2e6ea4336faeee59f8da7e5da267ad91185a2549
