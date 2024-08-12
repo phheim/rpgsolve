@@ -23,6 +23,7 @@ module RPG
   , setInv
   -- Other
   , succT
+  , succs
   , mapTerms
   , cyclicIn
   , usedSymbols

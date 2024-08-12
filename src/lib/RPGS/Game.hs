@@ -29,6 +29,7 @@ module RPGS.Game
   , setInv
   -- Other
   , succT
+  , succs
   , mapTerms
   , cyclicIn
   , usedSymbols
@@ -41,7 +42,6 @@ module RPGS.Game
 -------------------------------------------------------------------------------
 import Data.Map.Strict
   ( Map
-  , (!)
   , (!?)
   , findWithDefault
   , insertWith
